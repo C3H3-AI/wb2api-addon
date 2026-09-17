@@ -87,21 +87,23 @@ jobs:
         run: |
           set -euo pipefail
           REF="${{ needs.init.outputs.upstream_ref }}"
-          echo "==> cloning upstream @ ${REF}"
+          # 用 workspace 下的目录：runner 上 /src 不可写（Permission denied）
+          DEST="${GITHUB_WORKSPACE}/upstream-src"
+          echo "==> cloning upstream @ ${REF} into ${DEST}"
           if ! git clone --depth 1 --branch "${REF}" \
-                https://github.com/Sliverkiss/workbuddy2api /src 2>/dev/null; then
-            git clone https://github.com/Sliverkiss/workbuddy2api /src
-            cd /src && git checkout "${REF}"
+                https://github.com/Sliverkiss/workbuddy2api "${DEST}" 2>/dev/null; then
+            git clone https://github.com/Sliverkiss/workbuddy2api "${DEST}"
+            cd "${DEST}" && git checkout "${REF}"
           fi
-          cd /src
-          echo "==> upstream commit: $(git rev-parse HEAD)" | tee /tmp/upstream-commit
+          cd "${DEST}"
+          echo "==> upstream commit: $(git rev-parse HEAD)"
           go version
           echo "==> go build ./..."
           go build ./...
           echo "==> go vet ./..."
           go vet ./...
           echo "==> go test ./..."
-          go test ./... 2>&1 | tail -30
+          go test ./...
           echo "✅ 上游代码编译与测试通过"
 
   build:
