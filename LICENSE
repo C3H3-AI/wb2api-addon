@@ -19,3 +19,12 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+本加载项在构建时拉取并编译上游项目，其版权与许可声明如下：
+
+  workbuddy2api — https://github.com/Sliverkiss/workbuddy2api
+  MIT License, Copyright (c) Sliverkiss
+
+本仓库不含上游源码副本，仅在构建阶段从上游仓库获取。
