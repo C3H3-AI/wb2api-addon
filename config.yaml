@@ -1,0 +1,127 @@
+name: "WB2API"
+version: "1.0.0"
+slug: "wb2api"
+description: "把 WorkBuddy / CodeBuddy 账号变成 OpenAI 兼容 API（基于 workbuddy2api 上游，多账号轮转、熔断、成本择优）"
+url: "https://github.com/C3H3-AI/wb2api-addon"
+# 上游：Sliverkiss/workbuddy2api（MIT）。本 addon 只提供 HA 外壳，
+# 构建时从上游拉取源码，不 vendor 副本 —— 上游更新只需重建镜像。
+arch:
+  - aarch64
+  - amd64
+startup: "application"
+boot: "auto"
+ingress: true
+panel_icon: "mdi:robot-happy"
+ingress_port: 7863
+panel_title: "WB2API 管理"
+homeassistant: "2024.1.0"
+hassio_api: false
+host_network: false
+ports:
+  7863/tcp: 7863
+ports_description:
+  7863/tcp: "OpenAI 兼容 API + 管理面板"
+map:
+  - config:rw
+options:
+  api_key: ""
+  webui_user: ""
+  webui_pass: ""
+  log_level: "info"
+
+  # ── 账号池 ────────────────────────────────────────────────
+  # 单账号最大在途请求数：限制并发占用，避免打爆单个账号
+  max_in_flight: 3
+  max_in_flight_global: 2
+  # 连续失败达阈值 → 熔断（指数退避）
+  breaker_threshold: 3
+  breaker_cooldown: "30m"
+  breaker_cooldown_max: "6h"
+  # 闲置补偿：闲置越久权重越高（单位：每小时/上限）
+  idle_weight_per_hour: 0.5
+  idle_weight_max: 5.0
+  # 快过期积分优先消耗的时间窗（如 7 天）
+  expiring_soon: "168h"
+
+  # ── 冷却 ──────────────────────────────────────────────────
+  soft_rate: "600s"
+  soft_rate_max: "2h"
+
+  # ── 上游请求 ──────────────────────────────────────────────
+  timeout_seconds: 120
+  header_timeout_seconds: 120
+  idle_timeout_seconds: 300
+
+  # ── 定时任务 ──────────────────────────────────────────────
+  # 各任务的触发整点（24 小时制，逗号分隔）
+  checkin_hours: "9,21"
+  travel_hours: "9,21"
+  activity_hours: "10"
+  keepalive_hours: "22"
+  school_hours: "12"
+  cat_hours: "1"
+  checkin_enabled: true
+  travel_enabled: true
+  activity_enabled: true
+  keepalive_enabled: true
+  school_enabled: true
+  cat_enabled: true
+
+  # ── 会话粘性 ──────────────────────────────────────────────
+  session_sticky_enabled: true
+  session_sticky_ttl: "30m"
+
+  # ── 国际版渠道 ────────────────────────────────────────────
+  global_enabled: true
+
+  # ── 提示词 ────────────────────────────────────────────────
+  # passthrough = 透传客户端 system；custom = 用 prompt.file 替换
+  prompt_mode: "passthrough"
+  prompt_file: ""
+
+  # ── 指纹脱敏 ──────────────────────────────────────────────
+  sanitize_fingerprints: true
+schema:
+  api_key: "password"
+  webui_user: "str"
+  webui_pass: "password"
+  log_level: "list(debug|info|warn|error)"
+
+  max_in_flight: "int(1,64)"
+  max_in_flight_global: "int(1,64)"
+  breaker_threshold: "int(1,20)"
+  breaker_cooldown: "str"
+  breaker_cooldown_max: "str"
+  idle_weight_per_hour: "float(0,10)"
+  idle_weight_max: "float(0,100)"
+  expiring_soon: "str"
+
+  soft_rate: "str"
+  soft_rate_max: "str"
+
+  timeout_seconds: "int(10,600)"
+  header_timeout_seconds: "int(10,600)"
+  idle_timeout_seconds: "int(0,3600)"
+
+  checkin_hours: "str"
+  travel_hours: "str"
+  activity_hours: "str"
+  keepalive_hours: "str"
+  school_hours: "str"
+  cat_hours: "str"
+  checkin_enabled: "bool"
+  travel_enabled: "bool"
+  activity_enabled: "bool"
+  keepalive_enabled: "bool"
+  school_enabled: "bool"
+  cat_enabled: "bool"
+
+  session_sticky_enabled: "bool"
+  session_sticky_ttl: "str"
+
+  global_enabled: "bool"
+
+  prompt_mode: "list(passthrough|custom)"
+  prompt_file: "str"
+
+  sanitize_fingerprints: "bool"

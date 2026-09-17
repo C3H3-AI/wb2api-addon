@@ -1,0 +1,170 @@
+name: Build Add-on Image
+
+# 预构建多架构镜像并推送 GHCR。
+#
+# 本仓库**不含上游 Go 源码**：构建时从 Sliverkiss/workbuddy2api 拉取。
+# 因此「跟随上游」= 重新跑一次本 workflow，不需要任何 merge。
+#
+# 触发方式：
+#   - 定时（每天 03:00 UTC）：准实时跟随上游 master
+#   - 手动：需要立即跟随时触发
+#   - push：本仓库自身（外壳）变更时
+on:
+  schedule:
+    # 每天 UTC 03:00 = 北京时间 11:00
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: '要构建的上游 ref（留空=master；也可填具体 sha 回滚）'
+        required: false
+        type: string
+      version:
+        description: '镜像版本（留空=读 config.yaml）'
+        required: false
+        type: string
+  push:
+    branches: [main, master]
+    paths:
+      - 'config.yaml'
+      - 'Dockerfile'
+      - 'run.sh'
+      - 'panel.py'
+      - '.github/workflows/build-image.yml'
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+env:
+  ARCHITECTURES: '["amd64", "aarch64"]'
+  IMAGE_NAME: wb2api
+
+jobs:
+  init:
+    name: Resolve version & matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      version: ${{ steps.init.outputs.version }}
+      upstream_ref: ${{ steps.init.outputs.upstream_ref }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version and upstream ref
+        id: init
+        run: |
+          set -euo pipefail
+          # 版本：优先取手动输入，否则读 config.yaml
+          if [ -n "${{ inputs.version }}" ]; then
+            VER="${{ inputs.version }}"
+          else
+            VER="$(python3 .github/scripts/read_addon_version.py config.yaml)"
+          fi
+          REF="${{ inputs.upstream_ref }}"
+          [ -z "$REF" ] && REF="master"
+          echo "version=${VER}" >> $GITHUB_OUTPUT
+          echo "upstream_ref=${REF}" >> $GITHUB_OUTPUT
+          echo "version=${VER}  upstream_ref=${REF}"
+
+      - name: Get build matrix
+        id: matrix
+        uses: home-assistant/builder/actions/prepare-multi-arch-matrix@2026.09.0
+        with:
+          architectures: ${{ env.ARCHITECTURES }}
+          image-name: ${{ env.IMAGE_NAME }}
+          # 必须显式传小写前缀（owner 含大写会被 GHCR 拒绝）
+          registry-prefix: ghcr.io/c3h3-ai
+
+  # 先用上游代码跑一次编译 + 测试，避免把坏的上游打成镜像
+  verify-upstream:
+    name: Verify upstream builds
+    needs: init
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone and test upstream
+        run: |
+          set -euo pipefail
+          REF="${{ needs.init.outputs.upstream_ref }}"
+          echo "==> cloning upstream @ ${REF}"
+          if ! git clone --depth 1 --branch "${REF}" \
+                https://github.com/Sliverkiss/workbuddy2api /src 2>/dev/null; then
+            git clone https://github.com/Sliverkiss/workbuddy2api /src
+            cd /src && git checkout "${REF}"
+          fi
+          cd /src
+          echo "==> upstream commit: $(git rev-parse HEAD)" | tee /tmp/upstream-commit
+          go version
+          echo "==> go build ./..."
+          go build ./...
+          echo "==> go vet ./..."
+          go vet ./...
+          echo "==> go test ./..."
+          go test ./... 2>&1 | tail -30
+          echo "✅ 上游代码编译与测试通过"
+
+  build:
+    name: Build ${{ matrix.arch }}
+    needs: [init, verify-upstream]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.init.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        uses: home-assistant/builder/actions/build-image@2026.09.0
+        with:
+          arch: ${{ matrix.arch }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          image: ${{ matrix.image }}
+          image-tags: |
+            ${{ needs.init.outputs.version }}
+            latest
+          push: "true"
+          version: ${{ needs.init.outputs.version }}
+          # 把上游 ref 透传给 Dockerfile
+          build-args: |
+            WB2API_REF=${{ needs.init.outputs.upstream_ref }}
+
+  manifest:
+    name: Publish multi-arch manifest
+    needs: [init, build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      packages: write
+    steps:
+      - name: Publish multi-arch manifest
+        uses: home-assistant/builder/actions/publish-multi-arch-manifest@2026.09.0
+        with:
+          architectures: ${{ env.ARCHITECTURES }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          image-name: ${{ env.IMAGE_NAME }}
+          registry-prefix: ghcr.io/c3h3-ai
+          image-tags: |
+            ${{ needs.init.outputs.version }}
+            latest
+
+  verify:
+    name: Verify image reachable
+    needs: [init, manifest]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify manifest tag matches config.yaml version
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/c3h3-ai/${IMAGE_NAME}"
+          VERSION="${{ needs.init.outputs.version }}"
+          echo "Checking ${IMAGE}:${VERSION}"
+          if ! docker manifest inspect "${IMAGE}:${VERSION}" >/dev/null 2>&1; then
+            echo "::error::Image ${IMAGE}:${VERSION} not found — config.yaml version 与镜像 tag 不一致，用户将无法安装"
+            exit 1
+          fi
+          echo "Image ${IMAGE}:${VERSION} is reachable"
