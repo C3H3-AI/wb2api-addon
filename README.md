@@ -135,7 +135,7 @@ panel.py         管理面板 + /v1/* 反向代理
 
 ### 自动跟随上游
 
-`.github/workflows/build-image.yml` 每天 UTC 03:00（北京时间 11:00）自动：
+`.github/workflows/build-image.yml` 每天 UTC 20:00（**北京时间次日 04:00**）自动：
 
 1. clone 上游最新 `master`
 2. **先跑 `go build` / `go vet` / `go test`** —— 上游挂了就不构建
