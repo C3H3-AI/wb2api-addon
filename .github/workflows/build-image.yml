@@ -86,6 +86,18 @@ jobs:
     name: Verify upstream builds
     needs: init
     runs-on: ubuntu-latest
+    # TZ 必须是 Asia/Shanghai，不能依赖 runner 默认的 UTC。
+    #
+    # 原因：上游 cmd/stats 的测试隐含假设运行环境是 +08:00 ——
+    #   main.go:788  win += "（自 " + t.Local().Format("01-02 15:04") + "）"
+    #   测试数据    Since = "2026-09-14T20:43:52+08:00"
+    #   断言        strings.Contains(frame[0], "自 09-14 20:43")
+    # 在 UTC 环境渲染成 12:43，断言必然失败（实测：TZ=UTC 挂、TZ=Asia/Shanghai 过）。
+    #
+    # 设成上海不是"绕过测试"，而是与**容器运行时的实际环境一致**
+    # （Dockerfile 里同样是 ENV TZ=Asia/Shanghai），也与上游作者的开发环境一致。
+    env:
+      TZ: Asia/Shanghai
     steps:
       - name: Clone and test upstream
         run: |
@@ -94,6 +106,7 @@ jobs:
           # 用 workspace 下的目录：runner 上 /src 不可写（Permission denied）
           DEST="${GITHUB_WORKSPACE}/upstream-src"
           echo "==> cloning upstream @ ${REF} into ${DEST}"
+          echo "==> TZ=${TZ}  date=$(date)"
           if ! git clone --depth 1 --branch "${REF}" \
                 https://github.com/Sliverkiss/workbuddy2api "${DEST}" 2>/dev/null; then
             git clone https://github.com/Sliverkiss/workbuddy2api "${DEST}"
